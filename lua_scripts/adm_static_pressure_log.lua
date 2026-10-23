@@ -9,8 +9,9 @@
      Nothing to set up on the module. Logged as ADMP.
   2  Raw 11-bit CAN frames: the module's RAWCAN output (node parameters
      RAWCAN_ENABLE = 1, RAWCAN_ID, RAWCAN_RAW_ID; layout in lib/RawCanFrame).
-     Two frames per sample, at the sample rate: filtered pressure (logged as
-     ADMR) and the unfiltered sample (logged as ADMU). Works on ArduPilot 4.6.
+     Two frame kinds: the filtered pressure, sent with every StaticPressure
+     at the module's BARO_PUB_HZ (logged as ADMR), and every unfiltered
+     sample at the sample rate (logged as ADMU). Works on ArduPilot 4.6.
   0  Auto (default): DroneCAN if this firmware has DroneCAN_Handle, otherwise
      the raw frame.
 
@@ -42,10 +43,10 @@
       Miss   frames missed since boot, from gaps in Seq
       Press  static pressure, Pa
 
-    Both frames of a sample carry the same Seq, so ADMR and ADMU entries with
-    the same Seg and Idx are the same sample (filtered and unfiltered).
-    For spectral analysis use Idx, not TimeUS: the module sends one frame of
-    each kind per sample, so sample time is Idx / sample rate on the module's own
+    ADMR and ADMU have separate counters and rates, so entries with the same
+    Idx are not the same moment; line the two up by TimeUS.
+    For spectral analysis use ADMU's Idx, not TimeUS: the module sends one
+    unfiltered frame per sample, so sample time is Idx / sample rate on its own
     clock (the module reports its measured rate as "BARO: N Hz measured"),
     whereas TimeUS carries up to ADMP_RUN_MS of polling jitter. Analyse each
     Seg separately. A new segment starts when the 8-bit Seq can no longer be
@@ -55,7 +56,7 @@
 
   GCS OUTPUT (every ADMP_RPT_S seconds)
     ADMP: node 50 101325.0 Pa 50.0 Hz               (DroneCAN)
-    ADMP: filt 0x2A0 101325.0 Pa 180.0 Hz 0 miss    (raw source, one line
+    ADMP: filt 0x2A0 101325.0 Pa 50.0 Hz 0 miss     (raw source, one line
     ADMP: raw 0x2A1 101331.5 Pa 180.0 Hz 0 miss      per frame kind)
   or a warning naming the likely cause when nothing arrived.
 

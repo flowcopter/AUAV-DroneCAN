@@ -7,16 +7,19 @@
 // ArduPilot 4.6 Lua script attached with CAN_D1_PROTOCOL2 = 10, which only
 // receives 11-bit frames. lua_scripts/adm_static_pressure_log.lua decodes them.
 //
-// Two frames are sent for every sample, at the sample rate (BARO_SAMPLE_HZ):
-//   ID RAWCAN_ID      filtered pressure (the value published as StaticPressure,
-//                     i.e. filtered unless BARO_LP_ENABLE = 0)
-//   ID RAWCAN_RAW_ID  unfiltered pressure (the sensor sample before the filter)
+// Two frame kinds, each at its own rate:
+//   ID RAWCAN_ID      filtered pressure: the value published as StaticPressure
+//                     (filtered unless BARO_LP_ENABLE = 0), sent together with
+//                     it at BARO_PUB_HZ
+//   ID RAWCAN_RAW_ID  unfiltered pressure: every sensor sample before the
+//                     filter, at the sample rate (BARO_SAMPLE_HZ)
 // Each frame:
 //   DLC     5
 //   0-3     static pressure, Pa, float32 little-endian
-//   4       sequence counter 0-255, +1 per sample, the same in both frames of
-//           a sample; it also advances for frames that could not be sent, so a
-//           receiver sees every gap and can pair the two frames
+//   4       sequence counter 0-255, one counter per frame kind: +1 per
+//           published value (filtered) or per sample (unfiltered). It also
+//           advances for frames that could not be sent, so a receiver sees
+//           every gap.
 //
 // Plain C++ with no Arduino dependency so it can be unit tested on the host.
 

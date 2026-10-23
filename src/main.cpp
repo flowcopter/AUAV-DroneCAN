@@ -25,11 +25,13 @@
 // AVERAGE16 conversions published as RawAirData at 20 Hz, scaled by
 // SENSOR_PRESSURE.
 //
-// RAWCAN_ENABLE = 1 additionally sends two 11-bit CAN frames for every
-// sample, at the sample rate: the filtered pressure on RAWCAN_ID and the
-// unfiltered sample on RAWCAN_RAW_ID (format in RawCanFrame.h), for receivers
-// that cannot subscribe to DroneCAN and for analysing the raw signal. Off by
-// default. StaticPressure is unaffected and stays at BARO_PUB_HZ.
+// RAWCAN_ENABLE = 1 additionally sends two 11-bit CAN frames (format in
+// RawCanFrame.h), for receivers that cannot subscribe to DroneCAN and for
+// analysing the raw signal. Off by default.
+//   RAWCAN_ID      the filtered value published as StaticPressure, sent with
+//                  it at BARO_PUB_HZ
+//   RAWCAN_RAW_ID  every unfiltered sample, at the sample rate
+// StaticPressure itself is unaffected.
 //
 // Nothing is published for a channel that is unhealthy (no fresh reading,
 // out of range, or a raw value that stopped changing), so a dead sensor shows
@@ -160,7 +162,7 @@ static void abs_start(uint32_t now_us)
     abs_retrying = false;
 }
 
-static void send_raw_can_sample(float unfiltered_pa, float filtered_pa);
+static void send_raw_can_unfiltered(float pressure_pa);
 
 static void abs_process(float pressure, float temperature, uint32_t raw, uint32_t now_ms)
 {
@@ -193,7 +195,7 @@ static void abs_process(float pressure, float temperature, uint32_t raw, uint32_
 
     // Same health rule as StaticPressure: nothing while stuck or misconfigured.
     if (!abs_stuck && filter_ok) {
-        send_raw_can_sample(pressure, (float)abs_filtered);
+        send_raw_can_unfiltered(pressure);
     }
 }
 
@@ -330,7 +332,8 @@ static void update_airspeed_config(uint32_t now_ms)
 static bool raw_can_enabled = false;
 static uint16_t raw_can_id = 0;        // filtered frame
 static uint16_t raw_can_raw_id = 0;    // unfiltered frame, 0 when not sent
-static uint8_t raw_can_seq = 0;
+static uint8_t raw_can_filtered_seq = 0;    // +1 per published value
+static uint8_t raw_can_unfiltered_seq = 0;  // +1 per sample
 static uint32_t raw_can_dropped = 0;   // frames not sent since the last report
 
 static void update_raw_can_config()
@@ -355,8 +358,8 @@ static void update_raw_can_config()
         snprintf(msg, sizeof(msg), "RAWCAN: RAWCAN_RAW_ID equals RAWCAN_ID 0x%03X, unfiltered off", id);
         dronecan.debug(msg, 2);
     } else {
-        snprintf(msg, sizeof(msg), "RAWCAN: filtered 0x%03X, unfiltered 0x%03X, every sample",
-                 id, raw_id);
+        snprintf(msg, sizeof(msg), "RAWCAN: filtered 0x%03X at %d Hz, unfiltered 0x%03X per sample",
+                 id, config.pub_hz, raw_id);
         dronecan.debug(msg, 1);
     }
 }
@@ -370,17 +373,19 @@ static void send_raw_can_frame(uint16_t id, float pressure_pa, uint8_t seq)
     }
 }
 
-// Both frames of a sample carry the same sequence number so a receiver can
-// pair them; it advances even if a frame cannot be sent.
-static void send_raw_can_sample(float unfiltered_pa, float filtered_pa)
+// Each frame kind has its own sequence counter (the two run at different
+// rates); it advances even if a frame cannot be sent, so receivers see gaps.
+static void send_raw_can_filtered(float pressure_pa)
 {
-    if (!raw_can_enabled) {
-        return;
+    if (raw_can_enabled) {
+        send_raw_can_frame(raw_can_id, pressure_pa, raw_can_filtered_seq++);
     }
-    const uint8_t seq = raw_can_seq++;
-    send_raw_can_frame(raw_can_id, filtered_pa, seq);
-    if (raw_can_raw_id != 0) {
-        send_raw_can_frame(raw_can_raw_id, unfiltered_pa, seq);
+}
+
+static void send_raw_can_unfiltered(float pressure_pa)
+{
+    if (raw_can_enabled && raw_can_raw_id != 0) {
+        send_raw_can_frame(raw_can_raw_id, pressure_pa, raw_can_unfiltered_seq++);
     }
 }
 
@@ -518,6 +523,8 @@ void setup()
                 uavcan_equipment_air_data_StaticPressure barometer_data{};
                 barometer_data.static_pressure = (float)abs_filtered; // in Pascals
                 sendUavcanMsg(dronecan, barometer_data, CANARD_TRANSFER_PRIORITY_HIGH);
+                // The same value, at the same time, as an 11-bit frame.
+                send_raw_can_filtered(barometer_data.static_pressure);
             }
             const uint32_t pub_period_us = 1000000UL / (uint32_t)config.pub_hz;
             next_pub_us += pub_period_us;
