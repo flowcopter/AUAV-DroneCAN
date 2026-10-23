@@ -2,7 +2,10 @@
 #include <dronecan.h>
 #include <AllSensors_AUAV.h>
 #include <PressureFilter.h>
+#include <RawCanFrame.h>
 #include <math.h>
+
+#include "raw_can.h"
 
 // Air data node with a filtered static pressure.
 //
@@ -22,6 +25,12 @@
 // AVERAGE16 conversions published as RawAirData at 20 Hz, scaled by
 // SENSOR_PRESSURE.
 //
+// RAWCAN_ENABLE = 1 additionally sends two 11-bit CAN frames for every
+// sample, at the sample rate: the filtered pressure on RAWCAN_ID and the
+// unfiltered sample on RAWCAN_RAW_ID (format in RawCanFrame.h), for receivers
+// that cannot subscribe to DroneCAN and for analysing the raw signal. Off by
+// default. StaticPressure is unaffected and stays at BARO_PUB_HZ.
+//
 // Nothing is published for a channel that is unhealthy (no fresh reading,
 // out of range, or a raw value that stopped changing), so a dead sensor shows
 // up as a missing baro in ArduPilot instead of a smooth, stale one.
@@ -38,6 +47,9 @@ std::vector<DroneCAN::parameter> custom_parameters = {
     {"BARO_PUB_HZ", DroneCAN::INT, 50, 10, 100},
     {"AIRSPEED_ENABLE", DroneCAN::INT, 0, 0, 1},
     {"BARO_LP_ENABLE", DroneCAN::INT, 1, 0, 1},
+    {"RAWCAN_ENABLE", DroneCAN::INT, 0, 0, 1},
+    {"RAWCAN_ID", DroneCAN::INT, 0x2A0, 1, RAW_CAN_ID_MAX},
+    {"RAWCAN_RAW_ID", DroneCAN::INT, 0x2A1, 1, RAW_CAN_ID_MAX},
 };
 
 DroneCAN dronecan;
@@ -148,6 +160,8 @@ static void abs_start(uint32_t now_us)
     abs_retrying = false;
 }
 
+static void send_raw_can_sample(float unfiltered_pa, float filtered_pa);
+
 static void abs_process(float pressure, float temperature, uint32_t raw, uint32_t now_ms)
 {
     if (!isfinite(pressure) || pressure < ABS_MIN_PA || pressure > ABS_MAX_PA) {
@@ -176,6 +190,11 @@ static void abs_process(float pressure, float temperature, uint32_t raw, uint32_
     abs_last_good_ms = now_ms;
     abs_have_good = true;
     abs_samples++;
+
+    // Same health rule as StaticPressure: nothing while stuck or misconfigured.
+    if (!abs_stuck && filter_ok) {
+        send_raw_can_sample(pressure, (float)abs_filtered);
+    }
 }
 
 static void abs_update(uint32_t now_us, uint32_t now_ms)
@@ -306,6 +325,66 @@ static void update_airspeed_config(uint32_t now_ms)
 }
 
 // ---------------------------------------------------------------------------
+// Raw 11-bit CAN output of the published pressure
+
+static bool raw_can_enabled = false;
+static uint16_t raw_can_id = 0;        // filtered frame
+static uint16_t raw_can_raw_id = 0;    // unfiltered frame, 0 when not sent
+static uint8_t raw_can_seq = 0;
+static uint32_t raw_can_dropped = 0;   // frames not sent since the last report
+
+static void update_raw_can_config()
+{
+    const bool enabled = dronecan.getParameter("RAWCAN_ENABLE") > 0.5f;
+    const uint16_t id = (uint16_t)dronecan.getParameter("RAWCAN_ID");
+    uint16_t raw_id = (uint16_t)dronecan.getParameter("RAWCAN_RAW_ID");
+    if (raw_id == id) {
+        raw_id = 0; // a receiver could not tell the two apart
+    }
+    if (enabled == raw_can_enabled && id == raw_can_id && raw_id == raw_can_raw_id) {
+        return;
+    }
+    raw_can_enabled = enabled;
+    raw_can_id = id;
+    raw_can_raw_id = raw_id;
+    if (!enabled) {
+        return;
+    }
+    char msg[70];
+    if (raw_id == 0) {
+        snprintf(msg, sizeof(msg), "RAWCAN: RAWCAN_RAW_ID equals RAWCAN_ID 0x%03X, unfiltered off", id);
+        dronecan.debug(msg, 2);
+    } else {
+        snprintf(msg, sizeof(msg), "RAWCAN: filtered 0x%03X, unfiltered 0x%03X, every sample",
+                 id, raw_id);
+        dronecan.debug(msg, 1);
+    }
+}
+
+static void send_raw_can_frame(uint16_t id, float pressure_pa, uint8_t seq)
+{
+    uint8_t data[8];
+    const uint8_t len = raw_can_pack_pressure(pressure_pa, seq, data);
+    if (!raw_can_send_std(id, data, len)) {
+        raw_can_dropped++;
+    }
+}
+
+// Both frames of a sample carry the same sequence number so a receiver can
+// pair them; it advances even if a frame cannot be sent.
+static void send_raw_can_sample(float unfiltered_pa, float filtered_pa)
+{
+    if (!raw_can_enabled) {
+        return;
+    }
+    const uint8_t seq = raw_can_seq++;
+    send_raw_can_frame(raw_can_id, filtered_pa, seq);
+    if (raw_can_raw_id != 0) {
+        send_raw_can_frame(raw_can_raw_id, unfiltered_pa, seq);
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 static void report_stats(uint32_t elapsed_ms, bool always)
 {
@@ -321,6 +400,20 @@ static void report_stats(uint32_t elapsed_ms, bool always)
     abs_samples = 0;
     abs_overruns = 0;
     abs_errors = 0;
+}
+
+// Frames are only dropped when the previous one never left mailbox 2, which
+// normally means nothing else on the bus is acknowledging frames.
+static void report_raw_can(uint32_t elapsed_ms)
+{
+    if (raw_can_dropped == 0) {
+        return;
+    }
+    char msg[80];
+    snprintf(msg, sizeof(msg), "RAWCAN: %lu frames not sent in %lu s (bus not acknowledging?)",
+             (unsigned long)raw_can_dropped, (unsigned long)(elapsed_ms / 1000UL));
+    dronecan.debug(msg, 2);
+    raw_can_dropped = 0;
 }
 
 void setup()
@@ -358,6 +451,7 @@ void setup()
 
     apply_config(read_config());
     update_airspeed_config(millis());
+    update_raw_can_config();
 
     uint32_t last_diff_ms = millis();
     uint32_t last_airspeed_error_ms = 0;
@@ -391,6 +485,7 @@ void setup()
                 apply_config(c);
             }
             update_airspeed_config(now_ms);
+            update_raw_can_config();
             last_config_ms = now_ms;
         }
 
@@ -405,6 +500,7 @@ void setup()
         if (now_ms - last_stats_ms >= 10000)
         {
             report_stats(now_ms - last_stats_ms, !first_report_done);
+            report_raw_can(now_ms - last_stats_ms);
             first_report_done = true;
             last_stats_ms = now_ms;
         }

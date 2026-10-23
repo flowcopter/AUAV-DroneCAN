@@ -2,7 +2,8 @@
   adm_pressure_print.lua - print the air data module's static pressure,
   received as a custom 11-bit CAN frame (ArduPilot 4.6.3).
 
-  FRAME (sent by the module when its raw CAN output is enabled)
+  FRAME (sent by the module when its node parameter RAWCAN_ENABLE = 1, with
+  the ID in its node parameter RAWCAN_ID; layout in lib/RawCanFrame)
     ID      11-bit standard, must equal ADMR_CAN_ID
     DLC     5
     0-3     static pressure, Pa, float32 little-endian (filtered value)
