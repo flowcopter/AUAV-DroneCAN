@@ -50,8 +50,8 @@ std::vector<DroneCAN::parameter> custom_parameters = {
     {"AIRSPEED_ENABLE", DroneCAN::INT, 0, 0, 1},
     {"BARO_LP_ENABLE", DroneCAN::INT, 1, 0, 1},
     {"RAWCAN_ENABLE", DroneCAN::INT, 0, 0, 1},
-    {"RAWCAN_ID", DroneCAN::INT, 0x2A0, 1, RAW_CAN_ID_MAX},
-    {"RAWCAN_RAW_ID", DroneCAN::INT, 0x2A1, 1, RAW_CAN_ID_MAX},
+    {"RAWCAN_ID", DroneCAN::INT, RAW_CAN_DEFAULT_FILTERED_ID, 1, RAW_CAN_ID_MAX},
+    {"RAWCAN_RAW_ID", DroneCAN::INT, RAW_CAN_DEFAULT_UNFILTERED_ID, 1, RAW_CAN_ID_MAX},
 };
 
 DroneCAN dronecan;

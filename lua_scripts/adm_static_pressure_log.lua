@@ -56,8 +56,8 @@
 
   GCS OUTPUT (every ADMP_RPT_S seconds)
     ADMP: node 50 101325.0 Pa 50.0 Hz               (DroneCAN)
-    ADMP: filt 0x2A0 101325.0 Pa 50.0 Hz 0 miss     (raw source, one line
-    ADMP: raw 0x2A1 101331.5 Pa 180.0 Hz 0 miss      per frame kind)
+    ADMP: filt 0x7EE 101325.0 Pa 50.0 Hz 0 miss     (raw source, one line
+    ADMP: raw 0x7EF 101331.5 Pa 180.0 Hz 0 miss      per frame kind)
   or a warning naming the likely cause when nothing arrived.
 
   PARAMETERS (added by the script; ADMP_SRC and ADMP_DRV are read once at
@@ -68,8 +68,8 @@
     ADMP_RPT_S   1    seconds between GCS prints, 0 = off
     ADMP_DRV     0    DroneCAN only: DroneCAN driver index, 0 = first
     ADMP_SRC     0    0 auto, 1 DroneCAN, 2 raw 11-bit frame
-    ADMP_CAN_ID  672  raw only: filtered frame ID, must equal the module's RAWCAN_ID
-    ADMP_RAW_ID  673  raw only: unfiltered frame ID, must equal the module's
+    ADMP_CAN_ID  2030 raw only: filtered frame ID (0x7EE), must equal the module's RAWCAN_ID
+    ADMP_RAW_ID  2031 raw only: unfiltered frame ID (0x7EF), must equal the module's
                       RAWCAN_RAW_ID; 0 ignores the unfiltered frames
 --]]
 
@@ -160,20 +160,20 @@ local ADMP_SRC = bind_param(6, "SRC", SRC_AUTO)
 --[[
   // @Param: ADMP_CAN_ID
   // @DisplayName: ADM pressure raw CAN ID
-  // @Description: Raw source only: 11-bit CAN ID of the module's pressure frame; must equal the module's RAWCAN_ID
-  // @Range: 1 2047
+  // @Description: Raw source only: 11-bit CAN ID of the module's filtered pressure frame; must equal the module's RAWCAN_ID
+  // @Range: 1 2031
   // @User: Standard
 --]]
-local ADMP_CAN_ID = bind_param(7, "CAN_ID", 0x2A0)
+local ADMP_CAN_ID = bind_param(7, "CAN_ID", 0x7EE)
 
 --[[
   // @Param: ADMP_RAW_ID
   // @DisplayName: ADM unfiltered pressure raw CAN ID
   // @Description: Raw source only: 11-bit CAN ID of the module's unfiltered pressure frame; must equal the module's RAWCAN_RAW_ID. 0 ignores the unfiltered frames.
-  // @Range: 0 2047
+  // @Range: 0 2031
   // @User: Standard
 --]]
-local ADMP_RAW_ID = bind_param(8, "RAW_ID", 0x2A1)
+local ADMP_RAW_ID = bind_param(8, "RAW_ID", 0x7EF)
 
 -- ---------------------------------------------------------------------------
 -- Pick and open the source

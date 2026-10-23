@@ -18,14 +18,14 @@
   Reboot, copy this file to APM/scripts/ on the SD card, reboot again.
 
   PARAMETERS (added by the script; changes apply without a reboot)
-    ADMR_CAN_ID    672 (0x2A0)  11-bit CAN ID to listen for, 1-2047
+    ADMR_CAN_ID    2030 (0x7EE) 11-bit CAN ID of the filtered frame, 1-2031
     ADMR_PRINT_MS  1000         how often to print, ms; 0 = never
 
   OUTPUT
   Every ADMR_PRINT_MS the latest value goes to the ground station:
     ADM: 101325.3 Pa, 50.0 Hz, 0 missed
   or, if no frame with that ID arrived in that time:
-    ADM: no frames with ID 0x2A0
+    ADM: no frames with ID 0x7EE
 --]]
 
 ---@diagnostic disable: param-type-mismatch
@@ -53,10 +53,10 @@ end
   // @Param: ADMR_CAN_ID
   // @DisplayName: ADM pressure CAN ID
   // @Description: 11-bit CAN ID of the air data module's pressure frame; must match the module's setting
-  // @Range: 1 2047
+  // @Range: 1 2031
   // @User: Standard
 --]]
-local ADMR_CAN_ID = bind_param(1, "CAN_ID", 0x2A0)
+local ADMR_CAN_ID = bind_param(1, "CAN_ID", 0x7EE)
 
 --[[
   // @Param: ADMR_PRINT_MS

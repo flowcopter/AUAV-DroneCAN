@@ -26,7 +26,18 @@
 #include <stdint.h>
 #include <string.h>
 
-static constexpr uint16_t RAW_CAN_ID_MAX = 0x7FF;
+// Highest usable 11-bit ID. CAN 2.0A forbids IDs whose 7 most significant
+// bits are all recessive (0x7F0-0x7FF); later ISO 11898 allows them, but some
+// controllers and tools still reject them.
+static constexpr uint16_t RAW_CAN_ID_MAX = 0x7EF;
+
+// Default IDs: the two highest usable IDs, i.e. the lowest bus priority. An
+// 11-bit ID from 0x7C0 up loses arbitration to every DroneCAN frame except
+// ones at DroneCAN's lowest priority (31), so these frames only use the bus
+// when nothing else is waiting. The filtered frame gets the lower of the two
+// so it wins when both are pending.
+static constexpr uint16_t RAW_CAN_DEFAULT_FILTERED_ID = 0x7EE;
+static constexpr uint16_t RAW_CAN_DEFAULT_UNFILTERED_ID = 0x7EF;
 static constexpr uint8_t RAW_CAN_PRESSURE_DLC = 5;
 
 // Fill out[0..4]; returns the number of bytes used.
