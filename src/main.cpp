@@ -12,6 +12,10 @@
 // signal leaves the node is the point: ArduPilot only averages what arrives
 // at 10 Hz and cannot remove a blade-passing tone that has already aliased.
 //
+// BARO_LP_ENABLE = 0 bypasses the filter and publishes the latest raw sample,
+// for comparing against the filtered output. The raw signal still contains
+// the blade-passing tone, which aliases when ArduPilot averages it.
+//
 // The differential channel (airspeed) is off unless AIRSPEED_ENABLE = 1. When
 // off, the node never talks to it and sends no RawAirData, so ArduPilot only
 // sees a barometer. When on, it works as in the Beyond Robotix firmware:
@@ -33,6 +37,7 @@ std::vector<DroneCAN::parameter> custom_parameters = {
     {"BARO_LP_ORDER", DroneCAN::INT, 2, 2, 4},
     {"BARO_PUB_HZ", DroneCAN::INT, 50, 10, 100},
     {"AIRSPEED_ENABLE", DroneCAN::INT, 0, 0, 1},
+    {"BARO_LP_ENABLE", DroneCAN::INT, 1, 0, 1},
 };
 
 DroneCAN dronecan;
@@ -58,14 +63,15 @@ static const uint32_t ABS_BUSY_RETRY_US = 200;
 struct BaroConfig
 {
     int sample_hz;
+    bool lp_enable;
     float lp_hz;
     int lp_order;
     int pub_hz;
 
     bool operator!=(const BaroConfig &o) const
     {
-        return sample_hz != o.sample_hz || lp_hz != o.lp_hz ||
-               lp_order != o.lp_order || pub_hz != o.pub_hz;
+        return sample_hz != o.sample_hz || lp_enable != o.lp_enable ||
+               lp_hz != o.lp_hz || lp_order != o.lp_order || pub_hz != o.pub_hz;
     }
 };
 
@@ -77,6 +83,7 @@ static BaroConfig read_config()
 {
     BaroConfig c;
     c.sample_hz = (int)dronecan.getParameter("BARO_SAMPLE_HZ");
+    c.lp_enable = dronecan.getParameter("BARO_LP_ENABLE") > 0.5f;
     c.lp_hz = dronecan.getParameter("BARO_LP_HZ");
     c.lp_order = (int)dronecan.getParameter("BARO_LP_ORDER");
     c.pub_hz = (int)dronecan.getParameter("BARO_PUB_HZ");
@@ -86,9 +93,16 @@ static BaroConfig read_config()
 static void apply_config(const BaroConfig &c)
 {
     config = c;
-    filter_ok = lowpass.configure(c.sample_hz, c.lp_hz, c.lp_order);
+    // A cutoff of 0 configures the low-pass as a pass-through.
+    filter_ok = lowpass.configure(c.sample_hz, c.lp_enable ? c.lp_hz : 0.0f, c.lp_order);
 
     char msg[90];
+    if (filter_ok && !lowpass.enabled()) {
+        snprintf(msg, sizeof(msg), "BARO: %d Hz, filter OFF (raw samples), pub %d Hz",
+                 c.sample_hz, c.pub_hz);
+        dronecan.debug(msg, 2);
+        return;
+    }
     if (!filter_ok) {
         snprintf(msg, sizeof(msg), "BARO: bad filter settings (LP %d.%d Hz order %d at %d Hz), not publishing",
                  (int)c.lp_hz, (int)(c.lp_hz * 10) % 10, c.lp_order, c.sample_hz);
